@@ -1,0 +1,239 @@
+// OCM/RHACM Dependencies - Graphviz Diagrams
+// Generate with: dot -Tsvg ocm-dependencies-graphviz.dot -o ocm-dependencies-graphviz.svg
+
+digraph OCMDependencies {
+    rankdir=TB;
+    node [shape=box, style=filled];
+    
+    // Ramen Components
+    subgraph cluster_ramen {
+        label="Ramen Components";
+        style=filled;
+        color=lightblue;
+        
+        DRPC [label="DRPlacementControl\nController", fillcolor=lightcyan];
+        DRPolicy [label="DRPolicy\nController", fillcolor=lightcyan];
+        DRCluster [label="DRCluster\nController", fillcolor=lightcyan];
+        MWUtil [label="ManifestWork\nUtility", fillcolor=wheat];
+        MCVUtil [label="ManagedClusterView\nUtility", fillcolor=wheat];
+        MCUtil [label="ManagedCluster\nUtility", fillcolor=wheat];
+    }
+    
+    // OCM Core APIs
+    subgraph cluster_ocm {
+        label="OCM Core APIs";
+        style=filled;
+        color=lightcoral;
+        
+        MC [label="ManagedCluster\ncluster.open-cluster-management.io", fillcolor=lightpink];
+        Placement [label="Placement\ncluster.open-cluster-management.io", fillcolor=lightpink];
+        PD [label="PlacementDecision\ncluster.open-cluster-management.io", fillcolor=lightpink];
+        MW [label="ManifestWork\nwork.open-cluster-management.io", fillcolor=lightpink];
+        MCV [label="ManagedClusterView\nview.open-cluster-management.io", fillcolor=lightpink];
+        PR [label="PlacementRule\napps.open-cluster-management.io\n(Legacy)", fillcolor=mistyrose];
+    }
+    
+    // Dependencies
+    DRPC -> Placement [label="Reads"];
+    DRPC -> PD [label="Creates/Updates"];
+    DRPC -> MW [label="Creates/Updates"];
+    DRPC -> MCV [label="Creates/Reads"];
+    DRPC -> PR [label="Reads (Legacy)"];
+    DRPC -> MC [label="Reads"];
+    
+    DRPolicy -> MC [label="Reads"];
+    DRPolicy -> PR [label="Creates"];
+    
+    DRCluster -> MC [label="Reads"];
+    DRCluster -> MW [label="Creates/Updates"];
+    
+    MWUtil -> MW [label="Wraps"];
+    MCVUtil -> MCV [label="Wraps"];
+    MCUtil -> MC [label="Wraps"];
+}
+
+// Resource Flow Diagram
+digraph ResourceFlow {
+    rankdir=LR;
+    node [shape=box, style=filled];
+    
+    User [label="User", fillcolor=lightgreen];
+    DRPC [label="DRPlacementControl", fillcolor=lightcyan];
+    Placement [label="Placement API", fillcolor=lightpink];
+    MW [label="ManifestWork", fillcolor=lightpink];
+    MCV [label="ManagedClusterView", fillcolor=lightpink];
+    MC [label="ManagedCluster", fillcolor=lightpink];
+    VRG [label="VolumeReplicationGroup\n(Managed Cluster)", fillcolor=wheat];
+    App [label="Application\n(Managed Cluster)", fillcolor=wheat];
+    
+    User -> DRPC [label="1. Create"];
+    DRPC -> Placement [label="2. Read"];
+    Placement -> DRPC [label="3. Decision"];
+    DRPC -> MC [label="4. Validate"];
+    MC -> DRPC [label="5. Status"];
+    DRPC -> MW [label="6. Create"];
+    MW -> VRG [label="7. Deploy", style=dashed];
+    VRG -> App [label="8. Protect"];
+    DRPC -> MCV [label="9. Read Status"];
+    MCV -> VRG [label="10. Query", style=dashed];
+    VRG -> MCV [label="11. Status", style=dashed];
+    MCV -> DRPC [label="12. Status"];
+    DRPC -> Placement [label="13. Update Decision"];
+}
+
+// ManifestWork Types
+digraph ManifestWorkTypes {
+    rankdir=TB;
+    node [shape=box, style=filled];
+    
+    subgraph cluster_hub {
+        label="Hub Cluster";
+        style=filled;
+        color=lightblue;
+        
+        DRPC [label="DRPlacementControl", fillcolor=lightcyan];
+        DRCluster [label="DRCluster", fillcolor=lightcyan];
+    }
+    
+    subgraph cluster_mw {
+        label="ManifestWork Types";
+        style=filled;
+        color=lightcoral;
+        
+        VRGMW [label="VRG\nManifestWork", fillcolor=lightpink];
+        MMMW [label="MaintenanceMode\nManifestWork", fillcolor=lightpink];
+        NFMW [label="NetworkFence\nManifestWork", fillcolor=lightpink];
+        NSMW [label="Namespace\nManifestWork", fillcolor=lightpink];
+        DRCConfigMW [label="DRClusterConfig\nManifestWork", fillcolor=lightpink];
+        RBACMW [label="RBAC\nManifestWork", fillcolor=lightpink];
+    }
+    
+    subgraph cluster_mc {
+        label="Managed Cluster Resources";
+        style=filled;
+        color=wheat;
+        
+        VRG [label="VolumeReplicationGroup", fillcolor=wheat];
+        MM [label="MaintenanceMode", fillcolor=wheat];
+        NF [label="NetworkFence", fillcolor=wheat];
+        NS [label="Namespace", fillcolor=wheat];
+        DRCConfig [label="DRClusterConfig", fillcolor=wheat];
+        RBAC [label="ClusterRoles", fillcolor=wheat];
+    }
+    
+    DRPC -> VRGMW;
+    DRPC -> MMMW;
+    DRPC -> NFMW;
+    DRPC -> NSMW;
+    DRCluster -> DRCConfigMW;
+    DRCluster -> RBACMW;
+    
+    VRGMW -> VRG [style=dashed];
+    MMMW -> MM [style=dashed];
+    NFMW -> NF [style=dashed];
+    NSMW -> NS [style=dashed];
+    DRCConfigMW -> DRCConfig [style=dashed];
+    RBACMW -> RBAC [style=dashed];
+}
+
+// ManagedClusterView Types
+digraph ManagedClusterViewTypes {
+    rankdir=TB;
+    node [shape=box, style=filled];
+    
+    subgraph cluster_hub {
+        label="Hub Cluster";
+        style=filled;
+        color=lightblue;
+        
+        DRPC [label="DRPlacementControl", fillcolor=lightcyan];
+        DRCluster [label="DRCluster", fillcolor=lightcyan];
+    }
+    
+    subgraph cluster_mcv {
+        label="ManagedClusterView Types";
+        style=filled;
+        color=lightcoral;
+        
+        VRGMCV [label="VRG MCV", fillcolor=lightpink];
+        MMMCV [label="MaintenanceMode MCV", fillcolor=lightpink];
+        NFMCV [label="NetworkFence MCV", fillcolor=lightpink];
+        SCMCV [label="StorageClass MCV", fillcolor=lightpink];
+        VSCMCV [label="VolumeSnapshotClass MCV", fillcolor=lightpink];
+        VRCMCV [label="VolumeReplicationClass MCV", fillcolor=lightpink];
+        DRCConfigMCV [label="DRClusterConfig MCV", fillcolor=lightpink];
+    }
+    
+    subgraph cluster_mc {
+        label="Managed Cluster Resources";
+        style=filled;
+        color=wheat;
+        
+        VRG [label="VolumeReplicationGroup", fillcolor=wheat];
+        MM [label="MaintenanceMode", fillcolor=wheat];
+        NF [label="NetworkFence", fillcolor=wheat];
+        SC [label="StorageClass", fillcolor=wheat];
+        VSC [label="VolumeSnapshotClass", fillcolor=wheat];
+        VRC [label="VolumeReplicationClass", fillcolor=wheat];
+        DRCConfig [label="DRClusterConfig", fillcolor=wheat];
+    }
+    
+    DRPC -> VRGMCV;
+    DRPC -> MMMCV;
+    DRPC -> NFMCV;
+    DRPC -> SCMCV;
+    DRPC -> VSCMCV;
+    DRPC -> VRCMCV;
+    DRCluster -> DRCConfigMCV;
+    
+    VRGMCV -> VRG [style=dashed, label="reads"];
+    MMMCV -> MM [style=dashed, label="reads"];
+    NFMCV -> NF [style=dashed, label="reads"];
+    SCMCV -> SC [style=dashed, label="reads"];
+    VSCMCV -> VSC [style=dashed, label="reads"];
+    VRCMCV -> VRC [style=dashed, label="reads"];
+    DRCConfigMCV -> DRCConfig [style=dashed, label="reads"];
+}
+
+// Dependency Isolation Analysis
+digraph DependencyIsolation {
+    rankdir=TB;
+    node [shape=box, style=filled];
+    
+    subgraph cluster_critical {
+        label="Critical Dependencies";
+        style=filled;
+        color=lightcoral;
+        
+        MW [label="ManifestWork\n🔴 Cannot Remove", fillcolor=lightpink];
+        MCV [label="ManagedClusterView\n🔴 Cannot Remove", fillcolor=lightpink];
+        Placement [label="Placement API\n🔴 Cannot Remove", fillcolor=lightpink];
+        MC [label="ManagedCluster\n🔴 Cannot Remove", fillcolor=lightpink];
+    }
+    
+    subgraph cluster_replaceable {
+        label="Replaceable Dependencies";
+        style=filled;
+        color=wheat;
+        
+        PR [label="PlacementRule\n🟡 Can Remove\nLegacy Support", fillcolor=wheat];
+        Policy [label="Policy APIs\n🟡 Can Remove\nSecret Propagation", fillcolor=wheat];
+    }
+    
+    subgraph cluster_alternatives {
+        label="Alternative Approaches";
+        style=filled;
+        color=lightgreen;
+        
+        DirectAPI [label="Direct K8s API\nRequires kubeconfigs", fillcolor=lightgreen];
+        CustomPlacement [label="Custom Placement Logic\nLose OCM features", fillcolor=lightgreen];
+        CustomRegistry [label="Custom Cluster Registry\nLose OCM integration", fillcolor=lightgreen];
+    }
+    
+    MW -> DirectAPI [style=dashed, label="could replace", color=gray];
+    MCV -> DirectAPI [style=dashed, label="could replace", color=gray];
+    Placement -> CustomPlacement [style=dashed, label="could replace", color=gray];
+    MC -> CustomRegistry [style=dashed, label="could replace", color=gray];
+    PR -> Placement [style=dashed, label="remove", color=gray];
+    Policy -> DirectAPI [style=dashed, label="remove", color=gray];
+}
