@@ -1,0 +1,293 @@
+// Failover Operations Sequence Diagrams - Graphviz Format
+// Generate with: dot -Tsvg failover-sequence-diagrams-graphviz.dot -o failover-sequence-diagrams-graphviz.svg
+
+// Main Failover Sequence Diagram
+digraph MainFailoverSequence {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+    
+    User [label="User", fillcolor=lightgreen, style=filled];
+    DRPC [label="DRPlacementControl\n(Hub)", fillcolor=lightcyan, style=filled];
+    Placement [label="Placement API\n(OCM)", fillcolor=lightpink, style=filled];
+    MW [label="ManifestWork\n(OCM)", fillcolor=lightpink, style=filled];
+    MCV [label="ManagedClusterView\n(OCM)", fillcolor=lightpink, style=filled];
+    VRG_Hub [label="VRG\n(Hub View)", fillcolor=wheat, style=filled];
+    VRG_MC [label="VRG\n(Managed Cluster)", fillcolor=wheat, style=filled];
+    DRClusterOp [label="DR Cluster Operator", fillcolor=lightcyan, style=filled];
+    Storage [label="Storage Backend", fillcolor=lightgray, style=filled];
+    App [label="Application\nWorkload", fillcolor=lightgreen, style=filled];
+    
+    User -> DRPC [label="1. Set action=Failover\nfailoverCluster=target"];
+    DRPC -> DRPC [label="2. Validate failoverCluster"];
+    DRPC -> DRPC [label="3. Check isProtected()"];
+    DRPC -> DRPC [label="4. setDRState(FailingOver)"];
+    DRPC -> Placement [label="5. Get current cluster"];
+    Placement -> DRPC [label="6. Current cluster"];
+    DRPC -> DRPC [label="7. checkFailoverPrerequisites()"];
+    DRPC -> Placement [label="8. retainClusterDecisionAsFailover()"];
+    DRPC -> DRPC [label="9. switchToCluster()"];
+    DRPC -> DRPC [label="10. createVRGManifestWorkAsPrimary()"];
+    DRPC -> MW [label="11. Create/Update VRG MW"];
+    MW -> VRG_MC [label="12. Deploy VRG (Primary)"];
+    VRG_MC -> DRClusterOp [label="13. VRG Reconcile"];
+    DRClusterOp -> DRClusterOp [label="14. processAsPrimary()"];
+    DRClusterOp -> Storage [label="15. Promote volumes"];
+    Storage -> DRClusterOp [label="16. Volumes promoted"];
+    DRClusterOp -> VRG_MC [label="17. Update VRG status"];
+    DRPC -> MCV [label="18. Read VRG status"];
+    MCV -> VRG_MC [label="19. Query VRG"];
+    VRG_MC -> MCV [label="20. VRG status"];
+    MCV -> DRPC [label="21. VRG status"];
+    DRPC -> DRPC [label="22. checkReadiness()"];
+    DRPC -> Placement [label="23. Update PlacementDecision"];
+    Placement -> App [label="24. Relocate workload"];
+    DRPC -> DRPC [label="25. setDRState(FailedOver)"];
+}
+
+// Detailed VRG Failover Sequence
+digraph DetailedVRGFailover {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+    
+    DRPC [label="DRPlacementControl\n(Hub)", fillcolor=lightcyan, style=filled];
+    MW [label="ManifestWork\n(OCM)", fillcolor=lightpink, style=filled];
+    MCV [label="ManagedClusterView\n(OCM)", fillcolor=lightpink, style=filled];
+    VRG_MW [label="VRG in MW\n(Hub)", fillcolor=wheat, style=filled];
+    VRG_MC [label="VRG on MC\n(Managed Cluster)", fillcolor=wheat, style=filled];
+    VRGController [label="VRG Controller\n(DR Cluster Op)", fillcolor=lightcyan, style=filled];
+    VolRep [label="VolumeReplication\n(CSI Addons)", fillcolor=lightgray, style=filled];
+    VolSync [label="VolSync\n(if async)", fillcolor=lightgray, style=filled];
+    S3 [label="S3 Store", fillcolor=lightgray, style=filled];
+    PVC [label="PersistentVolumeClaim", fillcolor=wheat, style=filled];
+    PV [label="PersistentVolume", fillcolor=wheat, style=filled];
+    
+    subgraph cluster_phase1 {
+        label="Phase 1: Initiate Failover";
+        style=dashed;
+        DRPC -> DRPC [label="RunFailover()"];
+        DRPC -> MCV [label="Get VRG status"];
+        MCV -> VRG_MC [label="Query VRG"];
+        VRG_MC -> MCV [label="VRG (Secondary)"];
+        MCV -> DRPC [label="VRG status"];
+        DRPC -> DRPC [label="isProtected()"];
+    }
+    
+    subgraph cluster_phase2 {
+        label="Phase 2: Create/Update VRG as Primary";
+        style=dashed;
+        DRPC -> DRPC [label="switchToCluster()"];
+        DRPC -> MW [label="Find/Update MW"];
+        MW -> VRG_MW [label="Update VRG to Primary"];
+        MW -> VRG_MC [label="Deploy VRG"];
+        VRG_MC -> VRGController [label="Reconcile event"];
+    }
+    
+    subgraph cluster_phase3 {
+        label="Phase 3: VRG Processing as Primary";
+        style=dashed;
+        VRGController -> VRGController [label="processAsPrimary()"];
+        VRGController -> S3 [label="Read PV/PVC metadata"];
+        S3 -> VRGController [label="Metadata"];
+        VRGController -> PV [label="Restore PV"];
+        VRGController -> PVC [label="Restore PVC"];
+        VRGController -> VolRep [label="Promote to Primary"];
+        VolRep -> VRGController [label="Ready"];
+        VRGController -> VRG_MC [label="Update status"];
+    }
+    
+    subgraph cluster_phase4 {
+        label="Phase 4: Verify Readiness";
+        style=dashed;
+        DRPC -> MCV [label="Read VRG"];
+        MCV -> VRG_MC [label="Query VRG"];
+        VRG_MC -> MCV [label="DataReady = True"];
+        MCV -> DRPC [label="VRG ready"];
+        DRPC -> DRPC [label="checkReadiness()"];
+        DRPC -> DRPC [label="setDRState(FailedOver)"];
+    }
+}
+
+// VRG State Transitions During Failover
+digraph VRGStateTransitions {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+    
+    Secondary [label="Secondary", fillcolor=lightyellow, style=filled];
+    ValidatingFailover [label="Validating\nFailover", fillcolor=wheat, style=filled];
+    CheckingPrerequisites [label="Checking\nPrerequisites", fillcolor=wheat, style=filled];
+    Waiting [label="Waiting", fillcolor=lightgray, style=filled];
+    CreatingPrimaryVRG [label="Creating\nPrimary VRG", fillcolor=lightcyan, style=filled];
+    DeployingVRG [label="Deploying\nVRG", fillcolor=lightcyan, style=filled];
+    VRGDeployed [label="VRG\nDeployed", fillcolor=lightgreen, style=filled];
+    ProcessingAsPrimary [label="Processing\nAs Primary", fillcolor=lightcyan, style=filled];
+    RestoringData [label="Restoring\nData", fillcolor=wheat, style=filled];
+    PromotingVolumes [label="Promoting\nVolumes", fillcolor=wheat, style=filled];
+    VolumesPromoted [label="Volumes\nPromoted", fillcolor=lightgreen, style=filled];
+    RestoringKubeObjects [label="Restoring\nKube Objects", fillcolor=wheat, style=filled];
+    KubeObjectsRestored [label="Kube Objects\nRestored", fillcolor=lightgreen, style=filled];
+    DataReady [label="Data\nReady", fillcolor=lightgreen, style=filled];
+    UpdatingPlacement [label="Updating\nPlacement", fillcolor=lightcyan, style=filled];
+    FailedOver [label="Failed\nOver", fillcolor=lightgreen, style=filled];
+    
+    Secondary -> ValidatingFailover [label="User sets\naction=Failover"];
+    ValidatingFailover -> CheckingPrerequisites [label="Validate\nfailoverCluster"];
+    CheckingPrerequisites -> CreatingPrimaryVRG [label="Prerequisites met"];
+    CheckingPrerequisites -> Waiting [label="Not met"];
+    Waiting -> CheckingPrerequisites [label="Retry"];
+    CreatingPrimaryVRG -> DeployingVRG [label="Create/Update MW"];
+    DeployingVRG -> VRGDeployed [label="MW applied"];
+    VRGDeployed -> ProcessingAsPrimary [label="Controller reconciles"];
+    ProcessingAsPrimary -> RestoringData [label="Restore needed"];
+    RestoringData -> PromotingVolumes [label="Data restored"];
+    PromotingVolumes -> VolumesPromoted [label="VolRep promoted"];
+    VolumesPromoted -> RestoringKubeObjects [label="Kube objects enabled"];
+    RestoringKubeObjects -> KubeObjectsRestored [label="Restored"];
+    KubeObjectsRestored -> DataReady [label="All conditions met"];
+    DataReady -> UpdatingPlacement [label="VRG DataReady=True"];
+    UpdatingPlacement -> FailedOver [label="PlacementDecision updated"];
+    ProcessingAsPrimary -> Waiting [label="Not ready"];
+    Waiting -> ProcessingAsPrimary [label="Retry"];
+}
+
+// Failover with VolumeGroupReplication (CephFS CG)
+digraph FailoverWithVolumeGroupReplication {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+    
+    DRPC [label="DRPlacementControl", fillcolor=lightcyan, style=filled];
+    MW [label="ManifestWork", fillcolor=lightpink, style=filled];
+    VRG [label="VolumeReplicationGroup", fillcolor=wheat, style=filled];
+    VRGController [label="VRG Controller", fillcolor=lightcyan, style=filled];
+    RGS [label="ReplicationGroupSource\n(CephFS CG)", fillcolor=lightgray, style=filled];
+    RGD [label="ReplicationGroupDestination\n(CephFS CG)", fillcolor=lightgray, style=filled];
+    CephFS [label="CephFS Storage", fillcolor=lightgray, style=filled];
+    
+    DRPC -> MW [label="1. Create/Update VRG\n(Primary, Failover)"];
+    MW -> VRG [label="2. Deploy VRG"];
+    VRG -> VRGController [label="3. Reconcile event"];
+    VRGController -> VRGController [label="4. processAsPrimary()"];
+    VRGController -> VRGController [label="5. reconcileAsPrimary()"];
+    VRGController -> RGD [label="6. Ensure RGD exists"];
+    RGD -> CephFS [label="7. Promote CG to Primary"];
+    CephFS -> RGD [label="8. CG promoted"];
+    RGD -> VRGController [label="9. RGD ready"];
+    VRGController -> VRGController [label="10. Ensure PVCs from RGD"];
+    VRGController -> VRG [label="11. Update VRG status\nDataReady = True"];
+    VRG -> DRPC [label="12. VRG ready via MCV"];
+    DRPC -> DRPC [label="13. Failover complete"];
+}
+
+// Failover Prerequisites Check
+digraph FailoverPrerequisites {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+    
+    DRPC [label="DRPlacementControl", fillcolor=lightcyan, style=filled];
+    MCV [label="ManagedClusterView", fillcolor=lightpink, style=filled];
+    VRG [label="VolumeReplicationGroup", fillcolor=wheat, style=filled];
+    DRCluster [label="DRCluster", fillcolor=lightcyan, style=filled];
+    MMode [label="MaintenanceMode", fillcolor=wheat, style=filled];
+    Storage [label="Storage Backend", fillcolor=lightgray, style=filled];
+    
+    DRPC -> DRPC [label="checkFailoverPrerequisites()"];
+    
+    subgraph cluster_metro {
+        label="Metro DR (Sync)";
+        style=dashed;
+        DRPC -> DRPC [label="checkMetroFailoverPrerequisites()"];
+        DRPC -> MCV [label="Read VRG"];
+        MCV -> VRG [label="Query VRG"];
+        VRG -> MCV [label="VRG with protected PVCs"];
+        MCV -> DRPC [label="VRG status"];
+        DRPC -> DRPC [label="Check PVCs for MMode"];
+        DRPC -> DRCluster [label="Check MaintenanceMode"];
+        DRCluster -> MMode [label="Query MMode"];
+        MMode -> Storage [label="Check FailoverActivated"];
+        Storage -> MMode [label="Activation status"];
+        MMode -> DRCluster [label="MMode status"];
+        DRCluster -> DRPC [label="MMode activated"];
+    }
+    
+    subgraph cluster_regional {
+        label="Regional DR (Async)";
+        style=dashed;
+        DRPC -> DRPC [label="checkRegionalFailoverPrerequisites()"];
+        DRPC -> DRCluster [label="Get DRCluster"];
+        DRCluster -> DRPC [label="DRCluster config"];
+        DRPC -> DRPC [label="requiresRegionalFailoverPrerequisites()"];
+        DRPC -> DRCluster [label="Check MMode activations"];
+        DRCluster -> MMode [label="Query MMode"];
+        MMode -> Storage [label="Check FailoverActivated"];
+        Storage -> MMode [label="Activation status"];
+        MMode -> DRCluster [label="Status"];
+        DRCluster -> DRPC [label="All activations met"];
+    }
+    
+    DRPC -> DRPC [label="Prerequisites met?"];
+}
+
+// Error Handling During Failover
+digraph FailoverErrorHandling {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+    
+    DRPC [label="DRPlacementControl", fillcolor=lightcyan, style=filled];
+    VRG [label="VolumeReplicationGroup", fillcolor=wheat, style=filled];
+    MCV [label="ManagedClusterView", fillcolor=lightpink, style=filled];
+    MW [label="ManifestWork", fillcolor=lightpink, style=filled];
+    User [label="User", fillcolor=lightgreen, style=filled];
+    
+    subgraph cluster_error1 {
+        label="Invalid failover target";
+        style=dashed;
+        DRPC -> DRPC [label="isValidFailoverTarget()"];
+        DRPC -> MCV [label="Read VRG"];
+        MCV -> DRPC [label="VRG invalid"];
+        DRPC -> DRPC [label="Set condition:\nAvailable = False"];
+        DRPC -> User [label="Error: Invalid target"];
+    }
+    
+    subgraph cluster_error2 {
+        label="Workload not protected";
+        style=dashed;
+        DRPC -> DRPC [label="isProtected()"];
+        DRPC -> DRPC [label="ConditionProtected != True"];
+        DRPC -> DRPC [label="Set condition:\nAvailable = False"];
+        DRPC -> User [label="Error: Not protected"];
+    }
+    
+    subgraph cluster_error3 {
+        label="Prerequisites not met";
+        style=dashed;
+        DRPC -> DRPC [label="checkFailoverPrerequisites()"];
+        DRPC -> DRPC [label="MMode not activated"];
+        DRPC -> DRPC [label="Requeue and retry"];
+    }
+    
+    subgraph cluster_error4 {
+        label="VRG deployment failure";
+        style=dashed;
+        DRPC -> MW [label="Create/Update MW"];
+        MW -> DRPC [label="Error deploying"];
+        DRPC -> DRPC [label="Requeue and retry"];
+    }
+    
+    subgraph cluster_error5 {
+        label="VRG not ready";
+        style=dashed;
+        DRPC -> MCV [label="Read VRG status"];
+        MCV -> VRG [label="Query VRG"];
+        VRG -> MCV [label="DataReady = False"];
+        MCV -> DRPC [label="VRG not ready"];
+        DRPC -> DRPC [label="Requeue and retry"];
+    }
+    
+    subgraph cluster_error6 {
+        label="VRG processing error";
+        style=dashed;
+        VRG -> VRG [label="processAsPrimary() fails"];
+        VRG -> VRG [label="Set error conditions"];
+        VRG -> DRPC [label="VRG status with errors"];
+        DRPC -> DRPC [label="Requeue and retry"];
+    }
+}
