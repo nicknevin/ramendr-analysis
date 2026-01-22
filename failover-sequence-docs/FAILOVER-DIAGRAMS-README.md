@@ -193,9 +193,9 @@ dot -Tpdf failover-sequence-diagrams-graphviz.dot -o failover-sequence-diagrams-
 
 ## Related Documentation
 
-- [OCM Dependencies Analysis](./ocm-dependencies-analysis.md)
-- [OCM Dependencies Diagrams](./ocm-dependencies-diagrams.md)
-- [OCM Dependencies Isolation](./ocm-dependencies-isolation.md)
+- [OCM Dependencies Analysis](../docs/ocm-dependencies-analysis.md)
+- [OCM Dependencies Diagrams](../docs/ocm-dependencies-diagrams.md)
+- [OCM Dependencies Isolation](../docs/ocm-dependencies-isolation.md)
 
 ## Summary
 
