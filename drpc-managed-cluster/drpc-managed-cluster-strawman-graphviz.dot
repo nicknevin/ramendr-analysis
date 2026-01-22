@@ -1,0 +1,303 @@
+// DRPC on Managed Clusters - ACM Elimination Strawman - Graphviz Diagrams
+// Generate with: dot -Tsvg drpc-managed-cluster-strawman-graphviz.dot -o drpc-managed-cluster-strawman-graphviz.svg
+
+// Current Architecture (With ACM)
+digraph CurrentArchitecture {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+    
+    subgraph cluster_hub {
+        label="OCM Hub Cluster";
+        style=filled;
+        color=lightblue;
+        
+        DRPC [label="DRPlacementControl\nController", fillcolor=lightcyan, style=filled];
+        Placement [label="Placement API\n(OCM)", fillcolor=lightpink, style=filled];
+        MW [label="ManifestWork\n(OCM)", fillcolor=lightpink, style=filled];
+        MCV [label="ManagedClusterView\n(OCM)", fillcolor=lightpink, style=filled];
+        MC [label="ManagedCluster\n(OCM)", fillcolor=lightpink, style=filled];
+    }
+    
+    subgraph cluster_mc1 {
+        label="Managed Cluster 1";
+        style=filled;
+        color=wheat;
+        
+        VRG1 [label="VolumeReplicationGroup", fillcolor=wheat, style=filled];
+        DRClusterOp1 [label="DR Cluster Operator", fillcolor=lightcyan, style=filled];
+    }
+    
+    subgraph cluster_mc2 {
+        label="Managed Cluster 2";
+        style=filled;
+        color=wheat;
+        
+        VRG2 [label="VolumeReplicationGroup", fillcolor=wheat, style=filled];
+        DRClusterOp2 [label="DR Cluster Operator", fillcolor=lightcyan, style=filled];
+    }
+    
+    DRPC -> Placement;
+    DRPC -> MW;
+    DRPC -> MCV;
+    DRPC -> MC;
+    MW -> VRG1 [style=dashed, label="deploys"];
+    MW -> VRG2 [style=dashed, label="deploys"];
+    MCV -> VRG1 [style=dashed, label="reads"];
+    MCV -> VRG2 [style=dashed, label="reads"];
+    MC -> DRClusterOp1 [style=dashed, label="discovery"];
+    MC -> DRClusterOp2 [style=dashed, label="discovery"];
+}
+
+// Proposed Architecture (Without ACM)
+digraph ProposedArchitecture {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+    
+    subgraph cluster_mc1 {
+        label="Managed Cluster 1";
+        style=filled;
+        color=lightblue;
+        
+        DRPC1 [label="DRPlacementControl\nController", fillcolor=lightcyan, style=filled];
+        VRG1 [label="VolumeReplicationGroup", fillcolor=wheat, style=filled];
+        DRClusterOp1 [label="DR Cluster Operator", fillcolor=lightcyan, style=filled];
+        ClusterReg1 [label="Cluster Registry\nConfigMap/CRD", fillcolor=wheat, style=filled];
+        K8sClient1 [label="K8s API Client\nPeer Cluster Access", fillcolor=wheat, style=filled];
+    }
+    
+    subgraph cluster_mc2 {
+        label="Managed Cluster 2";
+        style=filled;
+        color=lightblue;
+        
+        DRPC2 [label="DRPlacementControl\nController", fillcolor=lightcyan, style=filled];
+        VRG2 [label="VolumeReplicationGroup", fillcolor=wheat, style=filled];
+        DRClusterOp2 [label="DR Cluster Operator", fillcolor=lightcyan, style=filled];
+        ClusterReg2 [label="Cluster Registry\nConfigMap/CRD", fillcolor=wheat, style=filled];
+        K8sClient2 [label="K8s API Client\nPeer Cluster Access", fillcolor=wheat, style=filled];
+    }
+    
+    subgraph cluster_coord {
+        label="Coordination Layer";
+        style=filled;
+        color=lightgreen;
+        
+        S3 [label="S3 Store\nState Coordination", fillcolor=lightgreen, style=filled];
+        LeaderElection [label="Leader Election\nvia S3/API", fillcolor=lightgreen, style=filled];
+    }
+    
+    DRPC1 -> ClusterReg1;
+    DRPC1 -> K8sClient1;
+    DRPC1 -> VRG1;
+    DRPC1 -> S3;
+    DRPC1 -> LeaderElection;
+    
+    DRPC2 -> ClusterReg2;
+    DRPC2 -> K8sClient2;
+    DRPC2 -> VRG2;
+    DRPC2 -> S3;
+    DRPC2 -> LeaderElection;
+    
+    K8sClient1 -> VRG2 [style=dashed, label="direct API"];
+    K8sClient2 -> VRG1 [style=dashed, label="direct API"];
+    
+    DRPC1 -> DRPC2 [dir=both, style=dashed];
+}
+
+// DRPC Controller Sequence
+digraph DRPCControllerSequence {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+    
+    User [label="User", fillcolor=lightgreen, style=filled];
+    DRPC1 [label="DRPC Controller\n(Cluster 1)", fillcolor=lightcyan, style=filled];
+    ClusterReg [label="Cluster Registry", fillcolor=wheat, style=filled];
+    K8sClient [label="K8s API Client", fillcolor=wheat, style=filled];
+    S3 [label="S3 Coordination", fillcolor=lightgreen, style=filled];
+    DRPC2 [label="DRPC Controller\n(Cluster 2)", fillcolor=lightcyan, style=filled];
+    VRG1 [label="VRG (Cluster 1)", fillcolor=wheat, style=filled];
+    VRG2 [label="VRG (Cluster 2)", fillcolor=wheat, style=filled];
+    
+    User -> DRPC1 [label="1. Create/Update DRPC"];
+    DRPC1 -> ClusterReg [label="2. Get peer clusters"];
+    ClusterReg -> DRPC1 [label="3. Peer cluster list"];
+    DRPC1 -> S3 [label="4. Acquire coordination lock"];
+    S3 -> DRPC1 [label="5. Lock acquired (leader)"];
+    DRPC1 -> K8sClient [label="6. Get kubeconfig for cluster-2"];
+    K8sClient -> DRPC1 [label="7. K8s client for cluster-2"];
+    DRPC1 -> K8sClient [label="8. Read VRG from cluster-2"];
+    K8sClient -> VRG2 [label="9. Get VRG"];
+    VRG2 -> K8sClient [label="10. VRG status"];
+    K8sClient -> DRPC1 [label="11. VRG status"];
+    DRPC1 -> DRPC1 [label="12. Determine action"];
+    DRPC1 -> K8sClient [label="13. Deploy VRG to cluster-2"];
+    K8sClient -> VRG2 [label="14. Create/Update VRG"];
+    VRG2 -> K8sClient [label="15. VRG created"];
+    K8sClient -> DRPC1 [label="16. Deployment complete"];
+    DRPC1 -> S3 [label="17. Update coordination state"];
+    S3 -> DRPC2 [label="18. Notify state change"];
+    DRPC1 -> VRG1 [label="19. Monitor local VRG"];
+    VRG1 -> DRPC1 [label="20. VRG status updates"];
+}
+
+// Cluster Registry Component
+digraph ClusterRegistryComponent {
+    rankdir=LR;
+    node [shape=box, style=rounded];
+    
+    subgraph cluster_registry {
+        label="Cluster Registry";
+        style=filled;
+        color=lightblue;
+        
+        CR [label="ClusterRegistry CRD", fillcolor=lightcyan, style=filled];
+        Secret1 [label="Kubeconfig Secret 1", fillcolor=wheat, style=filled];
+        Secret2 [label="Kubeconfig Secret 2", fillcolor=wheat, style=filled];
+    }
+    
+    subgraph cluster_drpc {
+        label="DRPC Controller";
+        style=filled;
+        color=wheat;
+        
+        CRClient [label="Cluster Registry Client", fillcolor=wheat, style=filled];
+        K8sClientMgr [label="K8s Client Manager", fillcolor=wheat, style=filled];
+    }
+    
+    subgraph cluster_peers {
+        label="Peer Clusters";
+        style=filled;
+        color=lightgreen;
+        
+        Cluster1 [label="Cluster 1", fillcolor=lightgreen, style=filled];
+        Cluster2 [label="Cluster 2", fillcolor=lightgreen, style=filled];
+    }
+    
+    CR -> Secret1;
+    CR -> Secret2;
+    CRClient -> CR;
+    CRClient -> K8sClientMgr;
+    K8sClientMgr -> Secret1;
+    K8sClientMgr -> Secret2;
+    K8sClientMgr -> Cluster1 [style=dashed, label="API"];
+    K8sClientMgr -> Cluster2 [style=dashed, label="API"];
+}
+
+// S3 Coordination Sequence
+digraph S3CoordinationSequence {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+    
+    DRPC1 [label="DRPC (Cluster 1)", fillcolor=lightcyan, style=filled];
+    DRPC2 [label="DRPC (Cluster 2)", fillcolor=lightcyan, style=filled];
+    S3 [label="S3 Coordination Store", fillcolor=lightgreen, style=filled];
+    
+    subgraph cluster_leader {
+        label="Leader Election";
+        style=dashed;
+        DRPC1 -> S3 [label="1. Try acquire lock\n(DRPC-{name}-lock)"];
+        S3 -> DRPC1 [label="2. Lock acquired\n(TTL: 30s)"];
+        DRPC2 -> S3 [label="3. Try acquire lock"];
+        S3 -> DRPC2 [label="4. Lock failed\n(already held)"];
+    }
+    
+    subgraph cluster_state {
+        label="State Coordination";
+        style=dashed;
+        DRPC1 -> S3 [label="5. Write DRPC state\n(DRPC-{name}-state)"];
+        S3 -> DRPC1 [label="6. State written"];
+        DRPC2 -> S3 [label="7. Read DRPC state\n(polling or watch)"];
+        S3 -> DRPC2 [label="8. Current state"];
+    }
+    
+    subgraph cluster_decision {
+        label="Decision Coordination";
+        style=dashed;
+        DRPC1 -> S3 [label="9. Write placement decision\n(DRPC-{name}-decision)"];
+        S3 -> DRPC1 [label="10. Decision written"];
+        DRPC2 -> S3 [label="11. Read placement decision"];
+        S3 -> DRPC2 [label="12. Decision (cluster-1)"];
+    }
+    
+    subgraph cluster_renewal {
+        label="Lock Renewal";
+        style=dashed;
+        DRPC1 -> S3 [label="13. Renew lock\n(every 15 seconds)"];
+        S3 -> DRPC1 [label="14. Lock renewed"];
+    }
+}
+
+// Migration Path
+digraph MigrationPath {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+    
+    Phase1 [label="Phase 1:\nAdd Abstraction Layers", fillcolor=lightgreen, style=filled];
+    Phase2 [label="Phase 2:\nImplement Direct K8s Components", fillcolor=lightyellow, style=filled];
+    Phase3 [label="Phase 3:\nMove DRPC to Managed Clusters", fillcolor=wheat, style=filled];
+    Phase4 [label="Phase 4:\nRemove ACM Dependencies", fillcolor=lightpink, style=filled];
+    
+    Phase1 -> Phase2 [label="Interfaces ready"];
+    Phase2 -> Phase3 [label="Components tested"];
+    Phase3 -> Phase4 [label="DRPC migrated"];
+    Phase4 -> Complete [label="ACM removed"];
+    
+    Complete [label="Complete", fillcolor=lightgreen, style=filled];
+}
+
+// Component Interaction Flow
+digraph ComponentInteractionFlow {
+    rankdir=LR;
+    node [shape=box, style=rounded];
+    
+    DRPC [label="DRPC Controller", fillcolor=lightcyan, style=filled];
+    ClusterReg [label="Cluster Registry", fillcolor=wheat, style=filled];
+    K8sClientMgr [label="K8s Client Manager", fillcolor=wheat, style=filled];
+    S3Coord [label="S3 Coordinator", fillcolor=lightgreen, style=filled];
+    PeerCluster [label="Peer Cluster\nAPI", fillcolor=lightgray, style=filled];
+    LocalVRG [label="Local VRG", fillcolor=wheat, style=filled];
+    
+    DRPC -> ClusterReg [label="1. Get cluster info"];
+    ClusterReg -> DRPC [label="2. Cluster list"];
+    DRPC -> K8sClientMgr [label="3. Get client for peer"];
+    K8sClientMgr -> DRPC [label="4. K8s client"];
+    DRPC -> S3Coord [label="5. Acquire lock"];
+    S3Coord -> DRPC [label="6. Lock acquired"];
+    DRPC -> PeerCluster [label="7. Read/Write VRG"];
+    PeerCluster -> DRPC [label="8. VRG status"];
+    DRPC -> LocalVRG [label="9. Monitor local"];
+    LocalVRG -> DRPC [label="10. Status updates"];
+    DRPC -> S3Coord [label="11. Update state"];
+}
+
+// Failover Flow (Without ACM)
+digraph FailoverFlowWithoutACM {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+    
+    User [label="User", fillcolor=lightgreen, style=filled];
+    DRPC1 [label="DRPC (Cluster 1)", fillcolor=lightcyan, style=filled];
+    DRPC2 [label="DRPC (Cluster 2)", fillcolor=lightcyan, style=filled];
+    S3 [label="S3 Coordination", fillcolor=lightgreen, style=filled];
+    K8sClient [label="K8s Client", fillcolor=wheat, style=filled];
+    VRG1 [label="VRG (Cluster 1)\nPrimary", fillcolor=wheat, style=filled];
+    VRG2 [label="VRG (Cluster 2)\nSecondary", fillcolor=wheat, style=filled];
+    
+    User -> DRPC1 [label="1. Set action=Failover"];
+    DRPC1 -> S3 [label="2. Acquire lock"];
+    S3 -> DRPC1 [label="3. Lock acquired"];
+    DRPC1 -> K8sClient [label="4. Get client for cluster-2"];
+    DRPC1 -> K8sClient [label="5. Read VRG2 status"];
+    K8sClient -> VRG2 [label="6. Get VRG"];
+    VRG2 -> K8sClient [label="7. VRG (Secondary)"];
+    K8sClient -> DRPC1 [label="8. VRG status"];
+    DRPC1 -> DRPC1 [label="9. Validate failover"];
+    DRPC1 -> K8sClient [label="10. Update VRG2 to Primary"];
+    K8sClient -> VRG2 [label="11. Update VRG"];
+    VRG2 -> VRG2 [label="12. Process as Primary"];
+    VRG2 -> K8sClient [label="13. VRG ready"];
+    K8sClient -> DRPC1 [label="14. VRG ready"];
+    DRPC1 -> S3 [label="15. Update decision"];
+    S3 -> DRPC2 [label="16. Notify decision"];
+    DRPC1 -> VRG1 [label="17. Cleanup old primary"];
+}
