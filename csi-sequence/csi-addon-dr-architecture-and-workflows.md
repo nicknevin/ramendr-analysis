@@ -204,9 +204,9 @@ sequenceDiagram
     participant App as Application
 
     User->>DRPC: Set spec.action=Failover, spec.failoverCluster=SurvivingCluster
-    DRPC->>DRPC: Validate; retain placement decision for failed cluster
-    DRPC->>MW: Create/Update ManifestWork: VRG (Primary) on SurvivingCluster
-    MW->>VRG_S: Deploy VRG (ReplicationState: primary, Action: Failover)
+    DRPC->>DRPC: Validate and retain placement for failed cluster
+    DRPC->>MW: Create or Update ManifestWork VRG Primary on SurvivingCluster
+    MW->>VRG_S: Deploy VRG ReplicationState primary Action Failover
     VRG_S->>VRG_S: processAsPrimary()
     VRG_S->>S3: Restore PV/PVC metadata (cluster data)
     S3->>VRG_S: PV/PVC metadata
