@@ -18,6 +18,6 @@ This folder contains documentation and diagrams for **standard CSI-addon based D
 
 ## Related Docs
 
-- [failover-sequence-diagrams.md](./failover-sequence-diagrams.md) – Failover sequence details (Mermaid + Graphviz).
-- [dr-api-interface-reference.md](./dr-api-interface-reference.md) – DR API (CRDs, status, orchestration).
-- [OCM-DEPENDENCIES-README.md](./OCM-DEPENDENCIES-README.md) – Hub/OCM dependency analysis.
+- [failover-sequence-diagrams.md](../failover-sequence-docs/failover-sequence-diagrams.md) – Failover sequence details (Mermaid + Graphviz).
+- [dr-api-interface-reference.md](../api-interface-reference/dr-api-interface-reference.md) – DR API (CRDs, status, orchestration).
+- [OCM-DEPENDENCIES-README.md](../docs/OCM-DEPENDENCIES-README.md) – Hub/OCM dependency analysis.
