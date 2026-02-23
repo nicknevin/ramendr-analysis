@@ -1,0 +1,60 @@
+// CSI-Addon based DR: Architecture and operation workflows (Graphviz)
+// Generate: dot -Tpng csi-addon-dr-architecture-workflows-graphviz.dot -o csi-addon-dr-arch.png
+
+digraph CSIAddonDRArchitecture {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+    compound=true;
+
+    subgraph cluster_hub {
+        label="OCM Hub Cluster";
+        User [label="User / Admin"];
+        DRPC [label="DRPlacementControl\n(DRPC)"];
+        DRPolicy [label="DRPolicy"];
+        Placement [label="Placement /\nPlacementDecision"];
+        MW [label="ManifestWork"];
+        MCV [label="ManagedClusterView"];
+    }
+
+    subgraph cluster_mc_a {
+        label="Managed Cluster A (e.g. Primary)";
+        VRG_A [label="VolumeReplicationGroup\n(VRG)"];
+        VR_A [label="VolumeReplication\n(VR) per PVC"];
+        CSI_A [label="CSI Driver +\nReplication Controller"];
+        App_A [label="Application\n(Pods + PVCs)"];
+        Storage_A [label="Storage Backend A"];
+    }
+
+    subgraph cluster_mc_b {
+        label="Managed Cluster B (e.g. Secondary)";
+        VRG_B [label="VolumeReplicationGroup\n(VRG)"];
+        VR_B [label="VolumeReplication\n(VR) per PVC"];
+        CSI_B [label="CSI Driver +\nReplication Controller"];
+        App_B [label="Application\n(Pods + PVCs)"];
+        Storage_B [label="Storage Backend B"];
+    }
+
+    S3 [label="S3 Store\n(PV/PVC metadata)"];
+
+    User -> DRPC;
+    DRPC -> DRPolicy;
+    DRPC -> Placement;
+    DRPC -> MW;
+    DRPC -> MCV;
+    MW -> VRG_A [style=dashed, label="deploys"];
+    MW -> VRG_B [style=dashed, label="deploys"];
+    MCV -> VRG_A [style=dashed, label="reads status"];
+    MCV -> VRG_B [style=dashed, label="reads status"];
+
+    VRG_A -> VR_A;
+    VRG_A -> S3;
+    VRG_B -> VR_B;
+    VRG_B -> S3;
+    VR_A -> CSI_A;
+    VR_B -> CSI_B;
+    CSI_A -> Storage_A;
+    CSI_B -> Storage_B;
+    Storage_A -> Storage_B [label="replication", style=dashed];
+    App_A -> VR_A;
+    App_B -> VR_B;
+}
