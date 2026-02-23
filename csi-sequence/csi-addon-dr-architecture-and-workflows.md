@@ -241,22 +241,22 @@ sequenceDiagram
     participant S3 as S3
     participant MW as ManifestWork
 
-    User->>DRPC: Set spec.action=Relocate, spec.preferredCluster=TargetCluster
-    DRPC->>DRPC: setupRelocation: ensure VRs secondary on source
-    DRPC->>VRG_P: VRG (Primary) → move to Secondary (final sync if supported)
-    VRG_P->>VR_P: PrepareForFinalSync / RunFinalSync (if VolSync) or storage final sync
-    VR_P->>CSI: Final sync (primary → secondary)
+    User->>DRPC: Set spec.action Relocate spec.preferredCluster TargetCluster
+    DRPC->>DRPC: setupRelocation ensure VRs secondary on source
+    DRPC->>VRG_P: VRG Primary move to Secondary final sync if supported
+    VRG_P->>VR_P: PrepareForFinalSync or RunFinalSync or storage final sync
+    VR_P->>CSI: Final sync primary to secondary
     CSI->>CSI: Data synced
     VRG_P->>VR_P: Update VR to Secondary
-    VRG_P->>S3: Upload latest PV/PVC metadata
-    DRPC->>MW: Create/Update VRG (Primary) on TargetCluster
-    MW->>VRG_S: Deploy VRG (ReplicationState: primary, Action: Relocate)
-    VRG_S->>S3: Restore PV/PVC metadata
-    VRG_S->>VRG_S: Restore PVs/PVCs; processAsPrimary()
-    VRG_S->>VR_S: Update VolumeReplication → Primary
+    VRG_P->>S3: Upload latest PV PVC metadata
+    DRPC->>MW: Create or Update VRG Primary on TargetCluster
+    MW->>VRG_S: Deploy VRG primary Action Relocate
+    VRG_S->>S3: Restore PV PVC metadata
+    VRG_S->>VRG_S: Restore PVs PVCs and processAsPrimary
+    VRG_S->>VR_S: Update VolumeReplication to Primary
     VR_S->>CSI: Promote to primary
-    DRPC->>DRPC: Update PlacementDecision → TargetCluster
-    DRPC->>DRPC: status.phase = Relocated
+    DRPC->>DRPC: Update PlacementDecision to TargetCluster
+    DRPC->>DRPC: status phase Relocated
 ```
 
 **Result:** Workload relocated to target cluster with controlled final sync and promotion.
@@ -278,22 +278,22 @@ sequenceDiagram
     participant S3 as S3
     participant MW as ManifestWork
 
-    Note over User,MW: Failback = Relocate back to original primary
-    User->>DRPC: Set spec.action=Relocate, spec.preferredCluster=OriginalPrimaryCluster
-    DRPC->>DRPC: Ensure OriginalPrimaryCluster is healthy (DRCluster, VRG)
-    DRPC->>VRG_Cur: Move VRG to Secondary (current primary)
-    VRG_Cur->>VR: VR → Secondary
-    VR->>CSI: Demote to secondary; replication original ← current
+    Note over User,MW: Failback is Relocate back to original primary
+    User->>DRPC: Set spec.action Relocate spec.preferredCluster OriginalPrimaryCluster
+    DRPC->>DRPC: Ensure OriginalPrimaryCluster is healthy
+    DRPC->>VRG_Cur: Move VRG to Secondary
+    VRG_Cur->>VR: VR to Secondary
+    VR->>CSI: Demote to secondary replication to original
     CSI->>CSI: Re-sync to original cluster
-    VRG_Cur->>S3: Upload PV/PVC metadata
-    DRPC->>MW: Create/Update VRG (Primary) on OriginalPrimaryCluster
-    MW->>VRG_Orig: Deploy VRG (ReplicationState: primary)
-    VRG_Orig->>S3: Restore PV/PVC metadata
-    VRG_Orig->>VRG_Orig: processAsPrimary(); restore PVs/PVCs
-    VRG_Orig->>VR: VolumeReplication → Primary
+    VRG_Cur->>S3: Upload PV PVC metadata
+    DRPC->>MW: Create or Update VRG Primary on OriginalPrimaryCluster
+    MW->>VRG_Orig: Deploy VRG primary
+    VRG_Orig->>S3: Restore PV PVC metadata
+    VRG_Orig->>VRG_Orig: processAsPrimary and restore PVs PVCs
+    VRG_Orig->>VR: VolumeReplication to Primary
     VR->>CSI: Promote on original cluster
-    DRPC->>DRPC: Update PlacementDecision → OriginalPrimaryCluster
-    DRPC->>DRPC: status.phase = Relocated (failback complete)
+    DRPC->>DRPC: Update PlacementDecision to OriginalPrimaryCluster
+    DRPC->>DRPC: status phase Relocated failback complete
 ```
 
 **Result:** Workload and volume primary are back on the original cluster; replication can run original → current (secondary) again.
