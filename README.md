@@ -62,7 +62,7 @@ need to orchestrate the installation of those components another way.
 These documents were prepared with the assistance of Cursor. The diagrams are in Mermaid format; and in addition
 there are graphviz "dot" files provided as well.
 
-#### [DR API Reference](api-interface-reference/dr-api-reference.md)
+#### [DR API Reference](api-interface-reference/dr-api-interface-reference.md)
 
 This document describes the APIs that Ramen itself provides.
 
@@ -71,7 +71,7 @@ This document describes the APIs that Ramen itself provides.
 These documents describe how Ramen interacts with the CSI Replication Addons.
 
 [Architecture and Workflows](csi-sequence/csi-addon-dr-architecture-and-workflows.md)
-[GraphViz dot files](csi-sequence/csi-addon-dr-architecture-and-workflows.dot)
+[GraphViz dot files](csi-sequence/csi-addon-dr-architecture-and-workflows-graphviz.dot)
 
 #### [Failover Sequence Documentation](failover-sequence-docs/FAILOVER-DIAGRAMS-README.md)
 
