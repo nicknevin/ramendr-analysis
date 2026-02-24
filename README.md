@@ -57,7 +57,7 @@ how to retrieve them from managed clusters or how to create or manage them on DR
 OADP/Velero. This depends on ManagedClusterAddOns, an ACM/OCM feature. As such, users of Ramen without ACM/OCM will
 need to orchestrate the installation of those components another way.
 
-### Key Documents and Diagrams
+### Supporting Documents and Diagrams
 
 These documents were prepared with the assistance of Cursor. The diagrams are in Mermaid format; and in addition
 there are graphviz "dot" files provided as well.
