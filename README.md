@@ -64,17 +64,25 @@ there are graphviz "dot" files provided as well.
 
 #### [DR API Reference](api-interface-reference/dr-api-reference.md)
 
+This document describes the APIs that Ramen itself provides.
+
 #### [CSI AddOns Architecture and Workflows](csi-sequence/CSI-ADDON-DR-WORKFLOWS-README.md)
+
+These documents describe how Ramen interacts with the CSI Replication Addons.
 
 [Architecture and Workflows](csi-sequence/csi-addon-dr-architecture-and-workflows.md)
 [GraphViz dot files](csi-sequence/csi-addon-dr-architecture-and-workflows.dot)
 
 #### [Failover Sequence Documentation](failover-sequence-docs/FAILOVER-DIAGRAMS-README.md)
 
+These documents describe Ramen's failover and state machine operations in detail.
+
 [Diagrams](failover-sequence-docs/failover-sequence-diagrams.md)
 [GraphViz dot files](failover-sequence-docs/failover-sequence-diagrams-graphviz.dot)
 
 #### [Ramen OCM Dependency Analysis](docs/OCM-DEPENDENCIES-README.md)
+
+These documents list the actual dependencies on ACM/OCM in Ramen.
 
 [Analysis](docs/ocm-dependencies-analysis.md)
 [Diagrams](docs/ocm-dependencies-diagrams.md)
@@ -83,6 +91,11 @@ there are graphviz "dot" files provided as well.
 
 #### [Disaster Recovery Placement Control (DRPC) Migration to Managed Cluster "Straw Man"](drpc-managed-cluster/DRPC-MANAGED-CLUSTER-README.md)
 
+In the absence of ACM/OCM, the question of where to locate the DR orchestration and control plane is open. This is a
+strawman proposal for what such a thing might look like if the managed clusters themselves were running the
+orchestration layer. (Other products in the marketplace take this approach.) This is not the only possible solution,
+and is not intended to be construed as a requirement.
+
 [Strawman Proposal](drpc-managed-cluster/drpc-managed-cluster-strawman.md)
-[Strawman Sequence Proposal](drpc-managed-cluster/drpc-managed-cluster-strawman-sequence.md)
-[GraphViz dot files](drpc-managed-cluster/drpc-managed-cluster-strawman-sequence.dot)
+[Strawman Sequences Proposal](drpc-managed-cluster/drpc-managed-cluster-strawman-sequences.md)
+[GraphViz dot files](drpc-managed-cluster/drpc-managed-cluster-strawman-graphviz.dot)
