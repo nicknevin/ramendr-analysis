@@ -1,4 +1,4 @@
-## Less ACM/OCM in Ramen
+## Towards Ramen as a More Appealing Kubernetes Community Standard
 
 ### Rationale
 
