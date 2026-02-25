@@ -8,255 +8,11 @@ It covers the changes needed to Ramen to facilitate this, the APIs which will be
 The dependencies Ramen currently has on OCM are analyzed in [OCM/RHACM Dependencies Documentation](../docs/OCM-DEPENDENCIES-README.md) and
 this provides useful background information.
 
-## Overview of Ramen Regional DR with OCM
+A brief overview of the Ramen architecture and implementation as it now is with OCM is [here](./ramen-arch-with-ocm.md).
 
-In Ramen all configuration and orchestration is done through the **Kubernetes API** using **Custom Resource Definitions (CRDs)**.
+For the purposes of discussion we shall refer to Vendor Ramen.
 
-### Core Architecture and Concepts
-
-Ramen utilizes a Hub-and-Spoke architecture built on top of OCM.
-- Hub Cluster (Control Plane): Runs the Ramen DR Orchestrator. It acts as the central control point where administrators
-  define DR policies and manage application placement. It uses OCM's ManifestWork to push configurations down to the
-  managed clusters and ManagedClusterView to view the status of resources on the managed clusters.
-- Managed Clusters (Data Plane): The primary and secondary clusters where the actual workloads and storage reside. These
-  clusters run the Ramen DR Manager, which executes local storage operations.
-- S3 Object Store: Because the Hub cluster only manages application deployment manifests, Ramen requires an S3 object
-  store to replicate the dynamically generated Kubernetes Persistent Volume (PV) cluster data from the primary cluster
-  to the secondary cluster.
-
-### The Building Blocks (Custom Resources)
-
-An orchestrator needs declarative APIs to manage state. Ramen uses the following hierarchy of Custom Resources (CRs):
-- DRPolicy (Hub-scoped): Created by an administrator to define the DR relationship. It specifies the two paired managed
-  clusters, specifies the schedulingInterval (the RPO target for storage sync), and defines the s3ProfileName used to
-  store PV metadata.
-- DRPlacementControl (DRPC) (Hub-scoped): The core workload-level orchestrator. The DRPC specifies:
-    - pvcSelector: Identifies which PVCs in the application namespace need DR protection.
-    - action: The current desired DR state, either empty (deploy), Relocate, or Failover.
-    - preferredCluster / failoverCluster: The target destinations for the workload.
-- VolumeReplicationGroup (VRG) (Managed Cluster-scoped): Created by the Hub operator on the managed clusters. It groups
-  all protected PVCs for a specific application. The VRG is responsible for uploading/downloading the PV metadata
-  to/from the S3 bucket and acting as the parent resource for individual volume replication.
-- VolumeReplication (VR) (Managed Cluster-scoped): Created by the VRG for each individual PVC. It directly interfaces
-  with the underlying storage's csi-addons to execute storage-level commands like promote, demote, and resync. This
-  custom resource is defined in the CSI Addons for Volume Replication.
-
-### Orchestration Workflows
-
-- Initial Deployment & Steady State
-    - Protection: When an application is deployed and assigned a DRPlacementControl on the Hub, Ramen intercepts the
-      placement. It creates a VolumeReplicationGroup (VRG) in the Primary state on the active cluster, and a
-      corresponding VRG in the Secondary state on the peer cluster.
-    - Data Sync: The storage layer begins asynchronously mirroring the actual block/file data based on the DRPolicy
-      schedule.
-    - Metadata Backup: The VRG running on the primary cluster continuously captures the Kubernetes PV/PVC metadata and
-      uploads it as compressed JSON to the configured S3 bucket.
-- Relocate (Planned Migration / Disaster Avoidance)
-    A Relocate action incurs no data loss but requires application downtime during the transition.
-    - Initiation: The user updates the DRPC action to Relocate.
-    - Quiesce and Final Sync: Ramen stops the application on the primary cluster (scaling it down to zero via ACM) to
-      prevent new data writes. It then triggers and waits for a final data sync of the storage volumes to ensure the
-      secondary cluster is 100% up to date.
-    - Demote: The VRG on the old primary is updated to Secondary, which demotes the underlying storage volumes.
-    - Promote and Restore: The VRG on the target cluster is updated to Primary. Ramen downloads the PV metadata from
-      S3, restores the PVs into the cluster, and promotes the target storage volumes to make them writable.
-    - App Start: Once the VRG reports ClusterDataReady, ACM deploys the application pods on the new primary cluster,
-      which seamlessly bind to the restored PVs.
-- Failover (Unplanned Disaster Recovery)
-    A Failover is executed when the primary cluster is unreachable. It accepts data loss based on the last successful
-    asynchronous storage sync (the RPO).
-    - Initiation: The user updates the DRPC action to Failover and sets the failoverCluster. Ramen validates if the
-      target cluster is alive and was an established secondary (checked via the PeerReady condition).
-    - Force Promote & Metadata Restore: Because the primary is dead, no final sync or graceful shutdown can occur. The
-      Hub immediately creates/updates the VRG on the surviving cluster to Primary. The local VRG downloads the latest
-      available PV metadata from S3, recreates the PVs, and issues a "force promote" to the storage layer via the
-      VolumeReplication CR.
-    - App Start: Once the PVs are restored and the volumes are promoted, ACM deploys the application pods to the
-      surviving cluster.
-    - Healing (Post-Disaster): When the dead cluster eventually comes back online, its local volumes will be in an
-      invalid, "split-brain" state. Ramen must fence or demote the old primary and force a resync so its storage
-      discards divergent data and cleanly becomes the new secondary.
-
-### Implementation
-
-Ramen is implemented in eight controllers. Three run on the hub cluster and the other five on the managed clusters.
-The following sections provide a high-level overview of their
-responsibilities. 
-
-Note: Fencing is a Metro DR feature and isn't applicable to Regional DR. References below to
-fencing are only for completeness and can be ignored for the purposes of Regional DR.
-
-#### Hub controllers
-
-##### DRPlacementControlReconciler
-
-Resources Managed:
-- Primary: DRPlacementControl (RamenDR CRD)
-
-Watches: ManifestWork, ManagedClusterView, PlacementRule, Placement, DRCluster, DRPolicy, Secret, PlacementDecision
-
-Control Flow:
-    User creates DRPC → Validates DRPolicy/DRClusters → Creates PlacementDecision
-    → Deploys VRG via ManifestWork → Monitors VRG status via ManagedClusterView
-    → Updates DRPC status → Handles failover/relocate actions
-
-Key Responsibilities:
-- Central orchestrator for DR workload placement
-- Manages failover/relocation between clusters
-- Monitors VolumeReplicationGroup (VRG) status on managed clusters
-- Handles both async (replication) and sync (metro) DR
-- Integrates with VolSync for asynchronous replication
-
-##### DRPolicyReconciler
-
-Resources Managed:
-- Primary: DRPolicy (RamenDR CRD)
-- Watches: ConfigMap, Secret, DRCluster, ManagedCluster, ManagedClusterView
-
-Control Flow:
-    DRPolicy created → Validates DRClusters exist → Validates peer replication classes
-    → Creates S3 profiles in RamenOpsNamespace → Creates OCM policies for fencing
-    → Updates DRPolicy conditions → Reports validation status
-
-Key Responsibilities:
-- Policy validation across DRClusters
-- S3 storage profile creation
-- Peer class (replication class) validation
-- OCM policy creation for cluster fencing/unfencing
-- Secret management for storage credentials
-
-Conditions: ValidationFailed, DRClusterNotFound, DRClustersUnavailable, Succeeded
-
-##### DRClusterReconciler
-
-Resources Managed:
-- Primary: DRCluster (RamenDR CRD)
-- Watches: DRPlacementControl, DRPolicy, ManifestWork, ManagedClusterView, ConfigMap, Secret
-
-Control Flow:
-    DRCluster created → Initializing → Validates prerequisites (storage, network fencing)
-    → Ready for use → On failover: Fencing → Fenced → Cleaned
-    → On recovery: Unfencing → Unfenced → Ready
-
-State Machine:
-Initializing → Validating → Validated (Succeeded)
-           ↓
-        Fencing → Fenced → Cleaning → Cleaned
-           ↓
-      Unfencing → Unfenced → Validated
-
-Key Responsibilities:
-- Cluster registration and validation
-- Fencing/unfencing orchestration for failover
-- Storage class and replication class validation
-- Network fence capability checks
-- ManifestWork coordination
-
-#### Managed cluster controllers
-
-##### VolumeReplicationGroupReconciler
-
-Resources Managed:
-- Primary: VolumeReplicationGroup (RamenDR CRD)
-- Watches: PersistentVolumeClaim, VolumeReplication, VolumeGroupReplication, ConfigMap
-- Owns: VolumeReplication, VolumeGroupReplication, VolSync resources, Velero backups
-
-Control Flow:
-    VRG created → Discovers PVCs (via labels/annotations) → Selects replication class
-    → PRIMARY ROLE:
-      ├─ Creates VolumeReplication/VolumeGroupReplication
-      ├─ Creates snapshots for consistency
-      ├─ Uploads PV/PVC metadata to S3
-      └─ Protects Kubernetes objects via Velero
-    
-    → SECONDARY ROLE:
-      ├─ Downloads PV/PVC from S3
-      ├─ Restores PVs/PVCs on secondary cluster
-      ├─ Enables secondary replication
-      └─ Restores Kubernetes objects via Velero
-    
-Key Responsibilities:
-- Manages volume replication (sync via CSI-Addons, async via VolSync)
-- PVC discovery and filtering
-- Snapshot creation and management
-- Kubernetes object protection (Velero/OADP integration)
-- Recipe execution (pre/post backup/restore hooks)
-- Primary ↔ Secondary role transitions
-
-##### DRClusterConfigReconciler
-
-Resources Managed:
-- Primary: DRClusterConfig (RamenDR CRD)
-- Watches: StorageClass, VolumeSnapshotClass, VolumeReplicationClass, VolumeGroupReplicationClass, VolumeGroupSnapshotClass, NetworkFenceClass, ClusterClaim
-
-Control Flow:
-    DRClusterConfig created → Discovers storage drivers → Validates replication classes
-    → Checks S3 reachability → Creates ClusterClaims → Updates status with capabilities
-
-Key Responsibilities:
-- Cluster capability discovery
-- Storage driver validation (Ceph, etc.)
-- Replication/snapshot class discovery
-- S3 backend connectivity validation
-- ClusterClaim creation for capabilities
-- Ensures one DRClusterConfig per cluster
-
-Conditions: Initializing, ConfigurationProcessed, ConfigurationFailed, S3 Reachable/Unreachable
-
-##### ReplicationGroupSourceReconciler
-
-Resources Managed:
-- Primary: ReplicationGroupSource (RamenDR CRD)
-- Watches: VolumeGroupSnapshot, PersistentVolumeClaim, ReplicationSource, VolumeSnapshot
-
-Control Flow:
-    ReplicationGroupSource created → Creates VolumeGroupSnapshot (consistency group)
-    → Creates temporary PVCs from snapshots → Creates ReplicationSource per PVC
-    → Syncs to remote via VolSync → Tracks sync status → Prepares for final sync
-
-Key Responsibilities:
-- Consistency group snapshots (Ceph CephFS)
-- Source-side group replication orchestration
-- VolSync integration for async replication
-- Sync scheduling (manual and cron-based)
-- Final sync preparation for failover
-
-##### ReplicationGroupDestinationReconciler
-
-Resources Managed:
-- Primary: ReplicationGroupDestination (RamenDR CRD)
-- Watches: ReplicationDestination, VolumeSnapshot
-
-Control Flow:
-    ReplicationGroupDestination created → Creates ReplicationDestination per PVC
-    → Receives snapshots via VolSync → Recovers PVCs from snapshots
-    → Tracks sync status → Can be paused via Spec.Paused
-
-Key Responsibilities:
-- Destination-side consistency group recovery
-- ReplicationDestination resource management
-- PVC recovery from replicated snapshots
-- VolSync coordination
-- Sync status tracking
-
-###### ProtectedVolumeReplicationGroupListReconciler
-
-Resources Managed:
-- Primary: ProtectedVolumeReplicationGroupList (RamenDR CRD)
-- Watches: None (one-shot discovery)
-
-Control Flow:
-    PVRGLIST created → Queries S3 using S3ProfileName → Parses S3 prefix hierarchy
-    → Extracts namespace/VRG pairs → Downloads VRG metadata from S3
-    → Populates status with discovered VRGs → Reconciliation complete
-
-Key Responsibilities:
-    Discovery of protected VRGs from S3 replica store
-    S3 metadata querying and parsing
-    VRG catalog generation for DR reporting
-    One-shot operation (no continuous reconciliation)
-
-## Ramen Regional DR without OCM
+## Breaking the OCM Dependencies
 
 As covered in [OCM/RHACM Dependencies Documentation](../docs/OCM-DEPENDENCIES-README.md) four core dependencies on OCM which need to be broken are
 - ManifestWork - For resource deployment
@@ -264,7 +20,7 @@ As covered in [OCM/RHACM Dependencies Documentation](../docs/OCM-DEPENDENCIES-RE
 - Placement/PlacementDecision - For cluster selection
 - ManagedCluster - For cluster discovery
 
-These are addressed in the following sections.
+They are addressed in the following sections.
 
 ### ManagedCluster
 
@@ -282,40 +38,97 @@ is simply be specified in the DRPC and there is no need for the Placement and Pl
 In Ramen with OCM, ManifestWork CRs are used to deploy resources (such as a VRG) from the hub to the managed
 clusters. To deploy a resource from the hub to a managed cluster, a ManifestWork CR encapsulating the resource is
 created on the hub in the namespace of the target managed cluster and OCM takes care of deploying the resource in the
-target managed cluster and updating the status of the ManifestWork CR accordingly.
+target managed cluster and updating the status of the ManifestWork CR to reflect the deployment status.
 
 Similarly to get the status of resources on a managed cluster a ManagedClusterView CR is created on the hub describing
-the resources to get status for and OCM takes care of retrieving their status from the managed cluster and updating the
-ManagedClusterView CR with the status.
+the resources to get status for and OCM takes care of updating the status ManagedClusterView CR retrieving with the
+status of the resources on the managed cluster.
 
-In Ramen without OCM it is proposed to use the same ManifestWork and ManagedClusterView CRs for deploying resources and getting resource state.
+In Ramen without OCM it is proposed to use the same ManifestWork and ManagedClusterView CRs for deploying resources and
+getting resource state, with the vendor using Ramen without OCM, providing the infrastructure for communication between
+the hub and managed clusters and updating the status of ManifestWork and ManagedClusterView CRs.
 
-However without OCM another means is required to take care of the actual deployment of resources on managed clusters,
-obtaining the status of resources on managed clusters and updating the ManifestWork and ManagedClusterView CRs on the
-hub.
+The architecture and implementation of the infrastructure for managing ManifestWork and ManagedClusterView is left to
+the vendors discretion. OCM manages ManifestWork for example via a pull model where an agent on the managed clusters
+watches for changes in the ManifestWork CR specs on the hub, applies changes to the resources in the managed cluster,
+while reporting the status of the updates by updating the status of the ManifestWork CR on the hub. Aletrnatively a push model could
+also be used where an agent on the hub pushes spec changes to the managed clusters.
 
-To this end it is proposed that third-parties provide a controller on the hub which reconciles ManifestWork and
-ManagedClusterView CRs in the managed cluster namespace. The controller will call out to the API servers on the managed
-clusters to deploy resources and get resource status, and then update the ManifestWork and ManagedClusterView CRs.
+Whatever architecture is used it must implement the following APIs for the ManifestWork and ManagedClusterView CRs.
 
-The setup for the communication between this controller and the managed clusters is entirely up to the third-party and
-beyond the scope of this specification. The controller must though update the ManifestWork and ManagedClusterView CRs as specified here. [TODO ref].
+#### ManifestWork API
 
-#### Alternative solutions
+Ramen without OCM creates the following resources types
+- VRG
+- Namespace
+- DRClusterConfig
+
+Status Conditions:
+- WorkApplied - Manifests have been applied
+- WorkAvailable - Resources are available/ready
+- WorkDegraded - Resources have issues
+- WorkProgressing - Application in progres
+
+#### ManagedClusterView API
+
+Ramen without OCM gets the status of the following resources types via ManagedClusterView CRs
+- VolumeReplicationGroup
+- DRClusterConfig
+- StorageClass
+- VolumeSnapshotClass
+- VolumeReplicationClass
+- VolumeGroupSnapshotClass
+- VolumeGroupReplicationClass
+
+**Status Condition Structure:**
+- **Type:** `ConditionViewProcessing` (always "Processing")
+- **Reason:** Can be:
+  - `ReasonGetResourceFailed` (GetResourceFailed) - resource query failed
+  - `GetResourceProcessing` - currently processing
+  - Other OCM-defined reasons for status
+- **Status:** `metav1.ConditionTrue` (True/False/Unknown)
+- **Message:** Human-readable description or error message
+- **LastTransitionTime:** When the condition changed
+
+**Example Status:**
+```yaml
+status:
+  conditions:
+  - lastTransitionTime: "2021-06-15T21:05:11Z"
+    message: Watching resources successfully
+    reason: GetResourceProcessing
+    status: "True"
+    type: Processing
+  result:
+    apiVersion: ramendr.openshift.io/v1alpha1
+    kind: VolumeReplicationGroup
+    metadata:
+    # ... actual resource data
+```
+
+**Status.Result Field:**
+- Contains the raw JSON-encoded resource data (`Raw` field)
+- Only populated when status is successful
+- Marshaled/Unmarshaled as needed for type conversion
+
+ManagedClusterView is a namespaced resource. To get the status of resources in managed cluster A the ManagedClusterView
+CR is created in namespace A in the hub cluster.
+
+#### Alternative Solutions
 
 1. Dispense with the ManifestWork and ManagedClusterView wrappers and use VRGs directly. This will require some mechanism (namespaces) to distinguish between incoming and outgoing VRGs.
 1. Dispense with the ManifestWork and ManagedClusterView wrappers and use new Ramen CRs which convey the same core information. This will eliminate use of OCM CRDs but will require the implementation of a translation layer in Ramen.
 1. Rather than require the use of CRDs to manage VRG state provide a gRPC API. In this case the vendor would need to provide a server in a sidecar or plugin of some sort to field API calls and effect changes in the VRGs. A server would also be needed for the OCM case which would presumably in turn make use of OCM ManifestWork and ManagedClusterView.
 
-## Initial setup
+## Requirements and Initial Setup
 
 Before placing a workload under DR protection via a DRPC the following setup is required.
 
-- vendor (third-party) controllers etc
-- S3 storage
-- storage replication
-- a DRCluster CR in the hub cluster for each managed cluster
-    Per-managed-cluster DR configuration.
+- The third-party controllers vendor (third-party) controllers etc. must be running.
+- S3 compatible storage must be created amd configured.
+- Storage replication must be enabled.
+- A DRCluster CR must be created in the hub cluster for each managed cluster.
+    This provides per-managed-cluster DR configuration.
     - The name of the CR must be the cluster name
     - The only field which is relevant for RDR is *s3ProfileName* which references the S3 profile for the cluster
       defined in the DRPolicy CR.
@@ -324,8 +137,8 @@ Before placing a workload under DR protection via a DRPC the following setup is 
     | :---- | :--- | :------- | :---------- |
     | `s3ProfileName` | string | Yes | S3 profile name from RamenConfig (for PV metadata) |
 
-- a DRPolicy CR in the hub cluster
-    Defines the two managed clusters, the replication schedule, and class selectors.
+- A DRPolicy CR must be created in the hub cluster
+    This defines the two managed clusters, the replication schedule, and class selectors.
 
     | Field | Type | Required | Description |
     | :---- | :--- | :------- | :---------- |
@@ -338,16 +151,21 @@ Before placing a workload under DR protection via a DRPC the following setup is 
 - the RamenConfig in a ConfigMap in each cluster Defines operator configuration (S3 profiles, etc.). On the hub the
     ConfigMap is named `ramen-hub-operator-config` and on the managed clusters it is named
     `ramen-dr-cluster-operator-config`.
-    
+
     To **configure S3** (for DR clusters and policies), you need to read/update this ConfigMap and the structure under
     `s3StoreProfiles`. Each profile has `s3ProfileName`, `s3Bucket`, `s3CompatibleEndpoint`, `s3Region`, `s3SecretRef`,
     and optional `caCertificates`, `veleroNamespaceSecretKeyRef`. Secrets use keys `AWS_ACCESS_KEY_ID` and
     `AWS_SECRET_ACCESS_KEY`.
-- StorageClass, VolumeSnapshotClass, VolumeReplicationClass, VolumeGroupReplicationClass, VolumeGroupSnapshotClass
+- Any of the following required for volume replication must be defined.
+    - StorageClass
+    - VolumeSnapshotClass
+    - VolumeReplicationClass
+    - VolumeGroupReplicationClass
+    - VolumeGroupSnapshotClass
 
-## DR Operations
+## DR Operations API
 
-Workloads are DR protected by creating a DRPC CR which specifies the workload resources to be protected and
+The API for managing DR operations is the DRPC CR which specifies the workload resources to be protected and
 the desired state for the resources.
 
 **Orchestration (what to set from your UI):**
@@ -357,7 +175,7 @@ the desired state for the resources.
 - **Failover (disaster recovery)**: Set `spec.action = "Failover"` and `spec.failoverCluster = <target-cluster>`.
 - **Clear action**: After operation completes, you can set `spec.action = ""` and clear `spec.failoverCluster` when applicable.
 
-### 3.2 DRPC Spec (Configuration and Orchestration)
+### DRPC Spec (Configuration and Orchestration)
 
 | Field | Type | Required | Description |
 | :---- | :--- | :------- | :---------- |
@@ -370,20 +188,20 @@ the desired state for the resources.
 | `kubeObjectProtection` | object | No | Kube object capture/recovery (recipe, interval, selector) |
 | `volSyncSpec` | object | No | VolSync-specific config (mover, TLS, etc.) |
 
+## Creating a DR Manager or UI
 
-## Status Reporting
+Ramen provides feedback on the state of DR through the status and conditions of the DRPC, DRPolicy, DRCluster and VRG CRs [TODO: are there any other?]
 
-### 1.3 DRPolicy Status (For Your Interface)
+### DRPolicy Status
 
 | Field | Type | Description |
 | :---- | :--- | :---------- |
 | `conditions` | []Condition | e.g. `Validated` |
 | `status.async.peerClasses` | []PeerClass | Resolved async replication peer classes (Regional DR) |
-| `status.sync.peerClasses` | []PeerClass | Resolved sync replication peer classes (Metro DR) |
 
 Use **conditions** to show validation/errors; use **peerClasses** to show which storage classes are available for DR.
 
-### 2.3 DRCluster Status (For Your Interface)
+### DRCluster Status
 
 | Field | Type | Description |
 | :---- | :--- | :---------- |
@@ -391,10 +209,11 @@ Use **conditions** to show validation/errors; use **peerClasses** to show which 
 | `conditions` | []Condition | e.g. `Validated`, `Clean`, `Fenced` |
 | `maintenanceModes` | []ClusterMaintenanceMode | Storage maintenance mode state per provisioner/target |
 
+[TODO: Do the phase and maintenanceModes fields apply?]
+
 Use **phase** and **conditions** for cluster readiness state in the UI.
 
-
-### 3.3 DRPC Status (Critical for Your Interface)
+### DRPC Status
 
 | Field | Type | Description |
 | :---- | :--- | :---------- |
@@ -411,7 +230,7 @@ Use **phase** and **conditions** for cluster readiness state in the UI.
 | `lastKubeObjectProtectionTime` | time | Last kube object capture |
 | `resourceConditions` | VRGConditions | Aggregated VRG conditions from managed cluster |
 
-### DRPC Phase (status.phase)
+#### DRPC Phase (status.phase)
 
 | Value | Meaning |
 | :---- | :------ |
@@ -426,7 +245,7 @@ Use **phase** and **conditions** for cluster readiness state in the UI.
 | `Relocated` | Relocation completed |
 | `Deleting` | DRPC is being deleted |
 
-### DRPC Conditions (status.conditions)
+#### DRPC Conditions (status.conditions)
 
 Standard Kubernetes conditions; check `type` and `status` (True/False).
 
@@ -436,7 +255,7 @@ Standard Kubernetes conditions; check `type` and `status` (True/False).
 | **PeerReady** | Whether a peer cluster is ready for failover/relocate. Reason e.g. `Success`, `NotStarted`, `Paused`. |
 | **Protected** | Whether the workload is protected. Reason: `Protected`, `Progressing`, `Error`, `Unknown`. |[=
 
-### 4.4 VRG Status (For Your Interface)
+#### VRG Status
 
 | Field | Type | Description |
 | :---- | :--- | :---------- |
@@ -450,7 +269,7 @@ Standard Kubernetes conditions; check `type` and `status` (True/False).
 | `prepareForFinalSyncComplete` | bool | Relocation: final sync prepared |
 | `finalSyncComplete` | bool | Relocation: final sync done |
 
-### 4.5 VRG Condition Types (status.conditions and protectedPVCs[].conditions)
+#### VRG Condition Types (status.conditions and protectedPVCs[].conditions)
 
 | Type | Level | Meaning |
 | :--- | :---- | :------ |
@@ -468,57 +287,16 @@ Standard Kubernetes conditions; check `type` and `status` (True/False).
 
 Each condition has **status** (True/False/Unknown), **reason**, and **message** – use these for UI and automation.
 
-## What you need to implement in order to use ramen for RDR
-
-- Capability to write/read resources on the managed clusters from the hub.
-
----
-
-## Summary: What You Need for a DR Interface
-
-### To Configure DR
-
-1. **DRPolicy**: Create/update/list – define the two clusters and replication (scheduling interval, class selectors).
-2. **DRCluster**: Create/update/list – per-cluster S3 profile, region, fencing.
-3. **RamenConfig** (ConfigMap): Read/update S3 profiles and operator settings.
-4. **DRPlacementControl**: Create with `placementRef`, `drPolicyRef`, `pvcSelector`, `preferredCluster` to protect an application.
-
-### To Orchestrate DR
-
-1. **DRPlacementControl**:
-   - **Relocate**: PATCH `spec.action = "Relocate"`, `spec.preferredCluster = <target>`.
-   - **Failover**: PATCH `spec.action = "Failover"`, `spec.failoverCluster = <target>`.
-   - **Clear**: PATCH `spec.action = ""`, clear `spec.failoverCluster` when appropriate.
-
-### To Show Status
-
-1. **DRPlacementControl**: Watch/list and display:
-   - `status.phase` (high-level state)
-   - `status.progression` (current step)
-   - `status.preferredDecision.clusterName` (current cluster)
-   - `status.conditions` (Available, PeerReady, Protected)
-   - `status.actionStartTime`, `status.actionDuration`, `status.lastGroupSyncTime`, etc.
-2. **DRPolicy**: `status.conditions`, `status.async.peerClasses`, `status.sync.peerClasses`.
-3. **DRCluster**: `status.phase`, `status.conditions`, `status.maintenanceModes`.
-4. **VolumeReplicationGroup** (optional, on managed clusters): `status.state`, `status.conditions`, `status.protectedPVCs`, sync times/bytes.
-
-### Suggested Watch Targets
-
-- `DRPlacementControl` in the relevant namespace(s) – for live DR state and progression.
-- `DRPolicy` and `DRCluster` – for validation and cluster state (less frequent updates).
-
-This gives you everything needed to implement a UI or orchestrator that configures DR (policies, clusters, applications) and runs relocate/failover while showing accurate status and progression.
-
 ## Deletion and Garbage Collection
 
 ## Security
 
-## Secondary hub
-
-## Coexistent OCM and Vendor Ramen
+## Hub Recovery
 
 Not supported.
 
 ## Other considerations
+
+Clusters will run either Ramen with OCM or Ramen without OCM. Running both on a cluster will not be supported.
 
 Suppose we wanted to replace the use of S3. What would it take to do this?

@@ -12,7 +12,7 @@ All configuration and orchestration is done through the **Kubernetes API** using
 
 ## Goals
 
-- Provide an API specification 
+- Provide an API specification
 - Keep to a minimum the changes required to Ramen.
 
 ## Non-goals
@@ -96,7 +96,7 @@ An orchestrator needs declarative APIs to manage state. Ramen uses the following
 
 Ramen is implemented in eight controllers. Three run on the hub cluster and the other five on the managed clusters.
 The following sections provide a high-level overview of their
-responsibilities. 
+responsibilities.
 
 Note: Fencing is a Metro DR feature and isn't applicable to Regional DR. References below to
 fencing are just for completeness and can be ignored for the purposes of Regional DR.
@@ -183,13 +183,13 @@ Control Flow:
       ├─ Creates snapshots for consistency
       ├─ Uploads PV/PVC metadata to S3
       └─ Protects Kubernetes objects via Velero
-    
+
     → SECONDARY ROLE:
       ├─ Downloads PV/PVC from S3
       ├─ Restores PVs/PVCs on secondary cluster
       ├─ Enables secondary replication
       └─ Restores Kubernetes objects via Velero
-    
+
 Key Responsibilities:
 - Manages volume replication (sync via CSI-Addons, async via VolSync)
 - PVC discovery and filtering
@@ -326,7 +326,7 @@ Before placing a workload under DR protection via a DRPC the following setup is 
 - the RamenConfig in a ConfigMap in each cluster Defines operator configuration (S3 profiles, etc.). On the hub the
     ConfigMap is named `ramen-hub-operator-config` and on the managed clusters it is named
     `ramen-dr-cluster-operator-config`.
-    
+
     To **configure S3** (for DR clusters and policies), you need to read/update this ConfigMap and the structure under
     `s3StoreProfiles`. Each profile has `s3ProfileName`, `s3Bucket`, `s3CompatibleEndpoint`, `s3Region`, `s3SecretRef`,
     and optional `caCertificates`, `veleroNamespaceSecretKeyRef`. Secrets use keys `AWS_ACCESS_KEY_ID` and
