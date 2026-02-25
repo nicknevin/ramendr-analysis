@@ -165,7 +165,7 @@ Before placing a workload under DR protection via a DRPC the following setup is 
 
 ## DR Operations API
 
-The API for managing DR operations is the DRPC CR which specifies the workload resources to be protected and
+The DRPlacementControl (DRPC) Custom Resource is the API for managing DR Operations. This CR specifies the workload resources to be protected and
 the desired state for the resources.
 
 **Orchestration (what to set from your UI):**
@@ -187,6 +187,28 @@ the desired state for the resources.
 | `protectedNamespaces` | []string | No | Additional namespaces to protect (unmanaged resources) |
 | `kubeObjectProtection` | object | No | Kube object capture/recovery (recipe, interval, selector) |
 | `volSyncSpec` | object | No | VolSync-specific config (mover, TLS, etc.) |
+
+**Note:** `placementRef` is a required field for the OCM version of Ramen. This references one of Placement or PlacementRule, which are OCM objects discussed earlier in this document. 
+For the purposes of this work, this can safely be ignored and set to `null` and Ramen will ignore it.
+
+### DRPC Statuses
+| Field                          | Type              | Description                                                                                                                             |
+| :----------------------------- | :---------------- | :-------------------------------------------------------------------------------------------------------------------------------------- |
+| `Phase`                        | string            | The current state of the DRPC, e.g. `WaitForUser`, `Initiating`, `FailingOver`, etc.                                                    |
+| `ObservedGeneration`           | int               | Most recently processed generation of DRPC                                                                                              |
+| `ActionStartTime`              | Time              | Start time of most recent DR Action                                                                                                     |
+| `ActionDuration`               | Duration          | Duration of most recent DR Action                                                                                                       |
+| `Progression`                  | ProgressionStatus | Detailed progress for current process, e.g. `EnsuringVolumesAreSecondary`, `WaitingForResourceRestore`, `CheckingFailoverPrerequisites` |
+| `PreferredDecision`            | PlacementDecision | The cluster on which the Application should be running                                                                                  |
+| `Conditions`                   | []Condition       | e.g. `Available`, `PeerReady`, `Protected`                                                                                              |
+| `ResourceConditions`           | VRGConditions     | Current condition of the VRGs ``                                                                                                        |
+| `LastUpdateTime`               | Time              |                                                                                                                                         |
+| `lastGroupSyncTime`            | Time              | Most recent sync time for all PVCs                                                                                                      |
+| `lastGroupSyncDuration`        | Duration          | How long sync took to run                                                                                                               |
+| `lastGroupSyncBytes`           | int               | Size of most recent sync                                                                                                                |
+| `LastKubeObjectProtectionTime` | Time              | Most recent Kube Object Protection time (recipe, interval, selector)                                                                    |
+
+For more detailed information on the DRPC CRD, examples of CRs, as well as a guide on usage and best practices, [Check here](https://github.com/mulbc/ramen/blob/docs/enhance-documentation/docs/drpc-crd.md)
 
 ## Creating a DR Manager or UI
 
