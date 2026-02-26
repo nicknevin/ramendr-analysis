@@ -71,23 +71,29 @@ how to retrieve them from managed clusters or how to create or manage them on DR
 OADP/Velero. This depends on ManagedClusterAddOns, an ACM/OCM feature. As such, users of Ramen without ACM/OCM will
 need to orchestrate the installation of those components another way.
 
+1. *Determination of where to run the control plane functions for an alternative orchestrator are out of scope.* Today,
+ACM/OCM requires a hub separate from the managed DR clusters to run the control plane. It is up to the alternative
+orchestrator (referred to as Object Transport System in these documents) where to run the control plane functions.
+
+### [Ramen Upstream Proposal](./ramen-api-no-ocm/RAMEN-NO-OCM-README.md)
+
 ### Supporting Documents and Diagrams
 
 These documents were prepared with the assistance of Cursor. The diagrams are in Mermaid format; and in addition
 there are graphviz "dot" files provided as well.
 
-#### [DR API Reference](api-interface-reference/dr-api-interface-reference.md)
+#### [Ramen DR API Reference](api-interface-reference/dr-api-interface-reference.md)
 
 This document describes the APIs that Ramen itself provides.
 
-#### [CSI AddOns Architecture and Workflows](csi-sequence/CSI-ADDON-DR-WORKFLOWS-README.md)
+#### [CSI Replication AddOns Architecture and Workflows](csi-sequence/CSI-ADDON-DR-WORKFLOWS-README.md)
 
 This document describes how Ramen interacts with the CSI Replication Addons.
 
 [Architecture and Workflows](csi-sequence/csi-addon-dr-architecture-and-workflows.md)
 [GraphViz dot files](csi-sequence/csi-addon-dr-architecture-and-workflows-graphviz.dot)
 
-#### [Failover Sequence Documentation](failover-sequence-docs/FAILOVER-DIAGRAMS-README.md)
+#### [Ramen Failover Sequence Documentation](failover-sequence-docs/FAILOVER-DIAGRAMS-README.md)
 
 Thils document describes Ramen's failover and state machine operations in detail.
 
@@ -102,15 +108,3 @@ These documents list the actual dependencies on ACM/OCM in Ramen.
 [Diagrams](docs/ocm-dependencies-diagrams.md)
 [Isolation "Straw Man" Proposal](docs/ocm-dependencies-isolation.md)
 [GraphViz dot files](docs/ocm-dependencies-graphviz.dot)
-
-#### [Disaster Recovery Placement Control (DRPC) Migration to Managed Cluster "Straw Man"](drpc-managed-cluster/DRPC-MANAGED-CLUSTER-README.md)
-
-In the absence of ACM/OCM, the question of where to locate the DR orchestration and control plane is open. This is a
-strawman proposal for what such a thing might look like if the managed clusters themselves were running the
-orchestration layer. (Other products in the marketplace take this approach.) This is not the only possible solution,
-and is not intended to be construed as a requirement. In general, the question of where the control plane functions
-run (for example, on managed clusters or on a separate cluster) is out of scope of this proposal.
-
-[Strawman Proposal](drpc-managed-cluster/drpc-managed-cluster-strawman.md)
-[Strawman Sequences Proposal](drpc-managed-cluster/drpc-managed-cluster-strawman-sequences.md)
-[GraphViz dot files](drpc-managed-cluster/drpc-managed-cluster-strawman-graphviz.dot)
