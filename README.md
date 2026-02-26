@@ -23,7 +23,10 @@ System as an alternative to OCM.
 Meanwhile, the Inter-Cluster State API will be contributed to Ramen, and the CSI Replication Add-Ons (aka CSI Repl
 API) will be proposed and standardized upstream in Kubernetes.
 
+#### *Phase 1 - Create API for OCM Abstraction*
 ![Phase 1 - Create API for OCM Abstraction](./images/ramendr-proposal-create-api.png)
+
+#### *Phase 2 - Motivated 3rd Party Implements API for OCM Abstraction*
 ![Phase 2 - Motivated 3rd Party Implements API for OCM Abstraction](./images/ramendr-proposal-implements-api.png)
 
 1. *Standardize Ramen's CSI Add-ons as part of the Kubernetes CSI specification.* Today, Kubernetes does not have a
