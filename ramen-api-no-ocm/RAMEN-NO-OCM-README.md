@@ -177,7 +177,7 @@ For more detailed information on the DRPC CRD, examples of CRs, as well as a gui
 
 ## Creating a DR Manager or UI
 
-Ramen provides feedback on the state of DR through the status and conditions of the DRPC, DRPolicy, DRCluster and VRG CRs [TODO: are there any other?]
+Ramen provides feedback on the state of DR through the status and conditions of the DRPC, DRPolicy, DRCluster and VRG CRs.
 
 ### DRPolicy Status
 
@@ -192,11 +192,8 @@ Use **conditions** to show validation/errors; use **peerClasses** to show which 
 
 | Field | Type | Description |
 | :---- | :--- | :---------- |
-| `phase` | string | `Available`, `Starting`, `Fencing`, `Fenced`, `Unfencing`, `Unfenced` |
-| `conditions` | []Condition | e.g. `Validated`, `Clean`, `Fenced` |
-| `maintenanceModes` | []ClusterMaintenanceMode | Storage maintenance mode state per provisioner/target |
-
-[TODO: Do the phase and maintenanceModes fields apply?]
+| `phase` | string | `Available`, `Starting` |
+| `conditions` | []Condition | e.g. `Validated` |
 
 Use **phase** and **conditions** for cluster readiness state in the UI.
 
@@ -240,7 +237,7 @@ Standard Kubernetes conditions; check `type` and `status` (True/False).
 | :--- | :------ |
 | **Available** | Whether the cluster in `preferredDecision` is ready for the workload. Reason can be `Progressing`, `Success`, `Paused`, etc. |
 | **PeerReady** | Whether a peer cluster is ready for failover/relocate. Reason e.g. `Success`, `NotStarted`, `Paused`. |
-| **Protected** | Whether the workload is protected. Reason: `Protected`, `Progressing`, `Error`, `Unknown`. |[=
+| **Protected** | Whether the workload is protected. Reason: `Protected`, `Progressing`, `Error`, `Unknown`. |
 
 ## Deletion and Garbage Collection
 
